@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "POSTURAITOR - Gran Vía Edition",
+    "slug": "posturaitor-granvia",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow POSTURAITOR to access your camera for selfies",
+        "NSLocationWhenInUseUsageDescription": "Allow POSTURAITOR to access your location for the Gran Vía experience",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow POSTURAITOR to access your location for the Gran Vía experience"
+      },
+      "bundleIdentifier": "com.posturaitor.granvia"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "package": "com.posturaitor.granvia",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDIPjPJ_YZuY8lK9oxIPoVrxZKcxBrBghE"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow POSTURAITOR to access your location for the Gran Vía experience"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow POSTURAITOR to access your photos for the selfie gallery",
+          "savePhotosPermission": "Allow POSTURAITOR to save photos to your gallery"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow POSTURAITOR to access your camera for selfie analysis"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "8f78e378-ee18-474b-9ae0-9e809d7611d1"
+      }
+    },
+    "owner": "joscelino"
+  }
+}
