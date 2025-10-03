@@ -75,6 +75,9 @@
         "projectId": "8f78e378-ee18-474b-9ae0-9e809d7611d1"
       }
     },
-    "owner": "joscelino"
+    "owner": "joscelino",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }
