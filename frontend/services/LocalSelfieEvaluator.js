@@ -36,6 +36,18 @@ const DEFAULT_LEVEL_RULES = {
   },
 };
 
+// Ratios lajos para declarar un nivel conseguido (además de requisitos obligatorios)
+const PASS_RATIOS = {
+  1: 0.5,   // 50% de requisitos basta en Nivel 1
+  2: 0.66,  // ~2/3 en Nivel 2
+  3: 0.75,  // ~3/4 en Nivel 3
+};
+
+function pick(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '';
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 
 
 const CLOTHING_HINTS = {
@@ -124,7 +136,7 @@ export class LocalSelfieEvaluator {
 
     const totalScore = this.composeTotalScore(baseScores, achievedLevel);
     const badge = this.getBadgeForLevel(achievedLevel);
-    const message = this.buildResultMessage({ achievedLevel, pointName: point?.name, levelResults });
+    const message = this.buildResultMessage({ achievedLevel, pointName: point?.name, pointId: point?.id, levelResults });
 
     return {
       status: 'ok',
@@ -211,23 +223,34 @@ export class LocalSelfieEvaluator {
 
     const requirements = [];
 
-    const distanceMet = distanceMeters != null && distanceMeters <= rules.maxDistance;
-    requirements.push({
-      id: 'distance',
-      met: distanceMet,
-      detail: distanceMet
-        ? `Distancia OK: ${distanceMeters?.toFixed(1)} m (maximo ${rules.maxDistance} m)`
-        : `Demasiado lejos: ${distanceMeters == null ? 'sin datos' : `${distanceMeters.toFixed(1)} m`} (maximo ${rules.maxDistance} m)`,
-    });
+    const distanceMet = distanceMeters != null && distanceMeters <= (rules.maxDistance + 10); // margen laxo +10 m
+    const nearText = [
+      'Estás en rango. 🔥',
+      'Cerca del spot. Nice. 💯',
+      'Distancia on point. ✅',
+    ];
+    const farText = [
+      `Camina unos pasitos: apunta a < ${rules.maxDistance} m.`,
+      `A dos zancadas del spot: intenta < ${rules.maxDistance} m.`,
+      `Acércate un pelín más (target ${rules.maxDistance} m).`,
+    ];
+    const distDetail = distanceMet
+      ? pick(nearText)
+      : `${pick(farText)}${distanceMeters == null ? '' : ` (ahora ~${distanceMeters.toFixed(0)} m)`}`;
+    requirements.push({ id: 'distance', met: distanceMet, detail: distDetail });
 
-    const eyesMet = metrics.eyes >= (rules.minEyes ?? 0);
-    requirements.push({
-      id: 'eyes',
-      met: eyesMet,
-      detail: eyesMet
-        ? `Ojos visibles (${Math.round(metrics.eyes * 100)}%)`
-        : `Necesitamos ojos mas abiertos (${Math.round(metrics.eyes * 100)}%)`,
-    });
+    const eyesMet = metrics.eyes >= ((rules.minEyes ?? 0) - 0.05); // margen laxo -5%
+    const eyesOk = [
+      'Ojitos on. 👀',
+      'Mirada a cámara. ✅',
+      'Tus ojos se ven frescos. ✨',
+    ];
+    const eyesTip = [
+      'Abre un poco más los ojos o busca mejor luz.',
+      'Mira a cámara y sube la luz un pelín.',
+      'Acerca la cara y evita sombras fuertes.',
+    ];
+    requirements.push({ id: 'eyes', met: eyesMet, detail: eyesMet ? pick(eyesOk) : pick(eyesTip) });
 
     const expression = this.checkExpressionRequirement(metrics, rules);
     requirements.push(expression);
@@ -243,8 +266,8 @@ export class LocalSelfieEvaluator {
         id: 'filter',
         met: filterMet,
         detail: filterMet
-          ? `Filtro requerido aplicado (${filterId})`
-          : `Activa el filtro ${rules.requiredFilterId} para este nivel`,
+          ? 'Filtro correcto aplicado. 🎛️'
+          : `Activa el filtro ${rules.requiredFilterId} antes de disparar. 🎛️`,
       });
     } else if (rules.requireFilter) {
       const filterMet = filterId && filterId !== 'none';
@@ -252,15 +275,29 @@ export class LocalSelfieEvaluator {
         id: 'filter',
         met: filterMet,
         detail: filterMet
-          ? `Filtro aplicado (${filterId})`
-          : 'Aplica un filtro especial para este nivel',
+          ? 'Filtro activado. 🎨'
+          : 'Activa cualquier filtro especial antes de disparar. 🎨',
       });
     }
 
-    const met = requirements.every(req => req.met !== false);
-    let score = Math.round(
-      requirements.reduce((acc, req) => acc + (req.met ? 1 : 0), 0) / requirements.length * 100,
-    );
+    const mandatoryIds = [ ...(rules.requiredFilterId ? ['filter'] : []) ];
+    const mandatoryMet = requirements
+      .filter(r => mandatoryIds.includes(r.id))
+      .every(r => r.met);
+
+    const metCount = requirements.reduce((acc, req) => acc + (req.met ? 1 : 0), 0);
+    const ratio = requirements.length ? metCount / requirements.length : 0;
+    const passRatio = PASS_RATIOS[level] ?? 0.75;
+    let met = mandatoryMet && ratio >= passRatio;
+    let softGateApplied = false;
+    if (met && ratio < passRatio + 0.08) {
+      if (Math.random() < 0.2) { // 20% de las veces, pide un intento más si vas justo
+        met = false;
+        softGateApplied = true;
+      }
+    }
+
+    let score = Math.round(ratio * 100);
 
     let appliedDistanceBonus = false;
     if (level === 1 && distanceMeters != null && distanceMeters <= unlockRadius) {
@@ -271,15 +308,30 @@ export class LocalSelfieEvaluator {
       }
     }
 
-    const detailLines = requirements.map(req => (req.met ? 'OK' : 'FALTA') + ' - ' + req.detail);
+    const okTags = ['OK - ', '🔥 OK - ', '✅ OK - ', '💯 OK - '];
+    const tipTags = ['TIP - ', '💡 TIP - ', '⚡ TIP - ', '👀 TIP - '];
+    const detailLines = requirements.map(req => (req.met ? pick(okTags) : pick(tipTags)) + req.detail);
 
     if (appliedDistanceBonus) {
-      detailLines.push(`Bonus distancia: dentro de ${unlockRadius}m, se garantiza el 50% del nivel 1`);
+      const bonusLines = [
+        `Bonus de cercanía: dentro de ${unlockRadius} m aseguras el 50% del L1.`,
+        `🔥 Bonus por rango: a < ${unlockRadius} m garantizas el 50% del L1.`,
+      ];
+      detailLines.push(pick(bonusLines));
+    }
+
+    if (softGateApplied && !met) {
+      detailLines.push(pick([
+        'Casi lo tienes, otra toma y cae. 💪',
+        'Muy cerca: repite y entra. ⚡',
+        'Un ajuste y pasas seguro. 🔁',
+      ]));
     }
 
     if (rules.manualChecks && rules.manualChecks.length) {
       rules.manualChecks.forEach(note => {
-        detailLines.push(`Manual - ${note}`);
+        const manualTags = ['Consejo - ', 'Hack - ', 'Pro tip - ', 'Idea - '];
+        detailLines.push(pick(manualTags) + note);
       });
     }
 
@@ -305,15 +357,17 @@ export class LocalSelfieEvaluator {
     const target = rules.targetExpression || 'any';
     const smile = metrics.smile;
 
-    if (rules.minSmile != null && smile < rules.minSmile) {
+    if (rules.minSmile != null && smile < rules.minSmile - 0.05) {
       requirement.met = false;
-      requirement.detail = `Sonrisa insuficiente (${Math.round(smile * 100)}%, se necesita ${Math.round(rules.minSmile * 100)}%)`;
+      const tips = ['Sonríe un poco más.', 'Dale una sonrisa más clara.', 'Activa modo selfie: sonrisa ON.'];
+      requirement.detail = pick(tips);
       return requirement;
     }
 
-    if (rules.maxSmile != null && smile > rules.maxSmile) {
+    if (rules.maxSmile != null && smile > rules.maxSmile + 0.05) {
       requirement.met = false;
-      requirement.detail = `Expresion demasiado sonriente (${Math.round(smile * 100)}%)`;
+      const tips = ['Relaja la sonrisa y ponte serio.', 'Gesto más serio para este nivel.', 'Menos sonrisa, más actitud.'];
+      requirement.detail = pick(tips);
       return requirement;
     }
 
@@ -321,29 +375,29 @@ export class LocalSelfieEvaluator {
       case 'smile':
         requirement.met = smile >= (rules.minSmile ?? 0.5);
         requirement.detail = requirement.met
-          ? 'Sonrisa lograda'
-          : 'Hace falta una sonrisa clara';
+          ? pick(['Sonrisa clara. 🔥', 'Esa sonrisa vende. 😎', 'Smile ON. 💫'])
+          : pick(['Sonríe de forma más evidente.', 'Sube esa sonrisa un puntito.', 'Dale sonrisa selfie-mode.']);
         return requirement;
       case 'serious':
         requirement.met = smile <= (rules.maxSmile ?? 0.3);
         requirement.detail = requirement.met
-          ? 'Expresion seria detectada'
-          : 'Mantener un gesto mas serio';
+          ? pick(['Gesto serio logrado. 🖤', 'Mood serio al punto. ✔️', 'Poker face ON.'])
+          : pick(['Relaja la sonrisa y mantén un gesto serio.', 'Menos sonrisa, más game face.', 'Pon cara seriecita.']);
         return requirement;
       case 'dramatic':
         requirement.met = smile <= (rules.maxSmile ?? 0.4) && Math.abs(metrics.yaw) >= (rules.minYaw ?? 10);
         requirement.detail = requirement.met
-          ? 'Actitud dramatica conseguida'
-          : 'Necesitamos mas dramatismo (giro o gesto serio)';
+          ? pick(['Actitud dramática conseguida. 💥', 'Drama queen/king vibes. 🎭', 'Dramatismo ON.'])
+          : pick(['Gira un poco la cara y adopta un gesto más serio.', 'Gira leve + gesto serio.', 'Un giro y más drama.']);
         return requirement;
       case 'power':
         requirement.met = smile >= (rules.minSmile ?? 0.45) && Math.abs(metrics.roll) <= (rules.maxRoll ?? 12);
         requirement.detail = requirement.met
-          ? 'Pose de poder detectada'
-          : 'Para la pose de poder abre mas la sonrisa y evita inclinar la cabeza';
+          ? pick(['Pose de poder detectada. 🚀', 'Power vibes. 💪', 'Dominando el frame. 👑'])
+          : pick(['Sonríe un poco y mantén la cabeza más recta.', 'Una sonrisa + cabeza recta y listo.', 'Endereza un poco la cabeza y sonríe.']);
         return requirement;
       default:
-        requirement.detail = 'Expresion valida';
+        requirement.detail = pick(['Expresión válida.', 'Buen gesto.', 'Actitud OK.']);
         return requirement;
     }
   }
@@ -365,51 +419,44 @@ export class LocalSelfieEvaluator {
     const rollMet = (!hasRollRequirement) || ((rules.minRoll == null || rollAbs >= rules.minRoll) && (rules.maxRoll == null || rollAbs <= rules.maxRoll));
     const pitchMet = (!hasPitchRequirement) || ((rules.minPitch == null || pitchAbs >= rules.minPitch) && (rules.maxPitch == null || pitchAbs <= rules.maxPitch));
 
-    const targetParts = [];
-    if (hasYawRequirement) {
-      const yawRange = [
-        rules.minYaw != null ? `>= ${rules.minYaw} grados` : null,
-        rules.maxYaw != null ? `<= ${rules.maxYaw} grados` : null,
-      ].filter(Boolean).join(' y ');
-      if (yawRange) {
-        targetParts.push(`giro ${yawRange}`);
-      }
-    }
-    if (hasRollRequirement) {
-      const rollRange = [
-        rules.minRoll != null ? `>= ${rules.minRoll} grados` : null,
-        rules.maxRoll != null ? `<= ${rules.maxRoll} grados` : null,
-      ].filter(Boolean).join(' y ');
-      if (rollRange) {
-        targetParts.push(`inclinacion ${rollRange}`);
-      }
-    }
-    if (hasPitchRequirement) {
-      const pitchRange = [
-        rules.minPitch != null ? `>= ${rules.minPitch} grados` : null,
-        rules.maxPitch != null ? `<= ${rules.maxPitch} grados` : null,
-      ].filter(Boolean).join(' y ');
-      if (pitchRange) {
-        targetParts.push(`inclinacion vertical ${pitchRange}`);
-      }
-    }
-
-    const orientationValues = [`yaw ${Math.round(metrics.yaw)} grados`, `roll ${Math.round(metrics.roll)} grados`];
-    if (hasPitchRequirement) {
-      orientationValues.push(`pitch ${Math.round(metrics.pitch)} grados`);
-    }
-
-    const targetText = targetParts.join(', ');
-    const detailSuccess = `Orientacion conseguida (${orientationValues.join(', ')})`;
-    const detailFailTarget = targetText ? `; objetivo ${targetText}` : '';
-    const detailFail = `Ajusta la pose (${orientationValues.join(', ')}${detailFailTarget})`;
-
     const allMet = yawMet && rollMet && pitchMet;
+
+    if (allMet) {
+      return {
+        id: 'orientation',
+        met: true,
+        detail: pick(['Pose conseguida. ¡Se ve con actitud! 🔥', 'Orientación on point. 💯', 'Ese ángulo está fino. 😎'])
+      };
+    }
+
+    // Construir sugerencias amigables según lo que falte
+    const tips = [];
+    if (!yawMet) {
+      if (rules.minYaw != null && yawAbs < rules.minYaw) {
+        tips.push(pick(['Gira un pelín la cara hacia un lado.', 'Dale un giro suave a la cara.', 'Rota leve la cara para dar flow.']));
+      } else if (rules.maxYaw != null && yawAbs > rules.maxYaw) {
+        tips.push(pick(['No gires tanto; mira más al frente.', 'Menos giro, más frente.', 'Vuelve un poco al frente.']));
+      }
+    }
+    if (!rollMet) {
+      if (rules.minRoll != null && rollAbs < rules.minRoll) {
+        tips.push(pick(['Ladea un poco la cabeza.', 'Inclina la cabeza un pelín.', 'Dale un tilt suave.']));
+      } else if (rules.maxRoll != null && rollAbs > rules.maxRoll) {
+        tips.push(pick(['Cabeza más recta.', 'Menos tilt, más recto.', 'Endereza un pelín la cabeza.']));
+      }
+    }
+    if (!pitchMet) {
+      if (rules.minPitch != null && pitchAbs < rules.minPitch) {
+        tips.push(pick(['Levanta o baja un poco la barbilla.', 'Ajusta la barbilla leve.', 'Barbilla un pelín arriba/abajo.']));
+      } else if (rules.maxPitch != null && pitchAbs > rules.maxPitch) {
+        tips.push(pick(['Mira un poco más al frente.', 'Barbilla neutra, mira al frente.', 'Centra la mirada más al frente.']));
+      }
+    }
 
     return {
       id: 'orientation',
-      met: allMet,
-      detail: allMet ? detailSuccess : detailFail,
+      met: false,
+      detail: tips.join(' '),
     };
   }
 
@@ -482,27 +529,125 @@ export class LocalSelfieEvaluator {
     return { name: 'POSTURAITOR SCOUT', marker: 'SCOUT', color: '#666666' };
   }
 
-  static buildResultMessage({ achievedLevel, pointName, levelResults }) {
+  static buildResultMessage({ achievedLevel, pointName, pointId, levelResults }) {
+    // Helper: point flavor lines
+    const POINT_FLAVORS = {
+      1: {
+        success: ['Skyline flex. 📸🌆', 'Modo boss de Madrid. 👑', 'Panorámica que rompe el feed. 💥'],
+        tip: ['Que se sienta la ciudad al fondo. 🌆', 'Abre plano o gran angular vibes. 🌀', 'Busca el mirador para ese 360. 🧭'],
+      },
+      2: {
+        success: ['Leyenda vibes. 👻🖤', 'Foto de leyenda en B&N. 🖤', 'Drama gótico a tope. 🎭'],
+        tip: ['Grito silencioso + ojos abiertos. 😱', 'Prueba blanco y negro para la leyenda. 🖤', 'Pon haunted mood, menos sonrisa.'],
+      },
+      3: {
+        success: ['Modo atraco ON. 🧢💼', 'Malote elegante. 🔥', 'Plan maestro vibes. 🧠'],
+        tip: ['Capucha, mirada fija y cero sonrisa. 🧢', 'Cruza brazos y fija mirada. 💪', 'Menos sonrisa, más plan.'],
+      },
+      4: {
+        success: ['Diosa vibe. ⚡👑', 'Contrapicado celestial. 🌌', 'Recibiendo poder de Minerva. ✨'],
+        tip: ['Levanta brazo hacia Minerva. ✋', 'Inclina móvil en contrapicado. 📱⬆️', 'Mira un poco al cielo. ☁️'],
+      },
+      5: {
+        success: ['Clásico madrileño con flow. 🚦', 'Vintage tráfico vibes. 🚕', 'Cruce con energía. ⚡'],
+        tip: ['Aprovecha semáforo en verde. 🟢', 'Prueba sepia/vintage mood. 🧡', 'Que se vea el semáforo.'],
+      },
+      6: { // Edificio Metropolis
+        success: ['Cúpula dorada vibes. ✨', 'Postal de Metrópolis. 💎', 'Brilla como la cúpula. 🌟'],
+        tip: ['Alinea la cúpula en tu hombro. 🏛️', 'Contrapicado suave y a brillar. 📱⬆️', 'Busca luz lateral doradita. ✨'],
+      },
+      7: { // Museo Chicote
+        success: ['Coctel vibes clásicos. 🍸', 'Bar mítico, pose cool. 😎', 'Nitidez con estilo. ✨'],
+        tip: ['Neón al fondo y actitud. ✨', 'Cara fresca, nada de flash. 🚫⚡', 'Inclínate suave hacia cámara.'],
+      },
+      8: { // WOW Concept
+        success: ['Retail futurista, tú al mando. 🛍️', 'Concept vibes. 💫', 'Foto con estética clean. ✨'],
+        tip: ['Incluye pasarela o luces. 💡', 'Busca simetría y centro. ➕', 'Luz frontal, cero sombras. 🔆'],
+      },
+      9: { // Edificio Telefónica
+        success: ['Icono skyline tech. 📡', 'Histórico pero futurista. ⚡', 'Foto de altura. ⛰️'],
+        tip: ['Marca verticales rectas. ⬆️', 'Giro leve para dramatismo. 🎭', 'Evita inclinación excesiva.'],
+      },
+      10: { // Primark XXL
+        success: ['Gigante retail energy. 🛒', 'Escaleras y luces on. ✨', 'Plano amplio, tú en foco. 🔍'],
+        tip: ['Abre plano o gran angular. 🌀', 'Incluye bolsas si puedes. 🛍️', 'Evita quemar luces. 🔆'],
+      },
+      11: { // Edificio Carrión (Schweppes)
+        success: ['Neón Schweppes vibes. 🟨', 'Gran Vía movie frame. 🎬', 'Nocturna fina. 🌙'],
+        tip: ['No uses flash; deja que el neón pinte. 💡', 'Colócate frente al neón. 📍', 'Ajusta exposición un poco. 📉'],
+      },
+      12: { // Plaza de Callao
+        success: ['Centro neurálgico vibes. 🌀', 'Panorámica urbana top. 🌆', 'Movimiento con estilo. 🏙️'],
+        tip: ['Incluye pantallas o rótulos. 🖥️', 'Gira el cuerpo para coger luz. 💡', 'Evita fuentes de luz que quemen.'],
+      },
+      13: { // Teatro Príncipe
+        success: ['Drama teatral. 🎭', 'Foco en ti, backstage al fondo. 🔦', 'Teatralidad con clase. ✨'],
+        tip: ['Cruza brazos y sube ceja. 🧐', 'Inclínate levemente hacia cámara. 📐', 'Gesto susurro, secreto. 🤫'],
+      },
+      14: { // Lope de Vega y Coliseum
+        success: ['Broadway vibes. 🌃', 'Dos marquesinas, tú en medio. 🎟️', 'Panorámica showtime. ✨'],
+        tip: ['Señala ambos teatros. 👈👉', 'Gira el móvil para abarcar. 📱', 'Mejor de noche con luces. 🌙'],
+      },
+      15: { // Plaza de España
+        success: ['Quijote + Sancho vibes. 🗡️', 'Heroínas/heroicos en la plaza. 🛡️', 'Skybar épico. 🌇'],
+        tip: ['Alinea tu pose con la estatua. 🗿', 'Actitud heroica y barbilla neutra. ✊', 'Si subes al skybar, muestra vértigo. 😵‍💫'],
+      },
+    };
+    function flavor(pointId, kind) {
+      const pack = POINT_FLAVORS[pointId];
+      if (!pack) return '';
+      return pick(pack[kind] || []) || '';
+    }
     const locationText = pointName ? ` en ${pointName}` : '';
     const nextLevel = achievedLevel < 3 ? levelResults[achievedLevel + 1] : null;
 
     if (achievedLevel === 3) {
-      return `Nivel maximo conseguido${locationText}. Foto perfecta.`;
+      const base = pick([
+        `Nivel 3${locationText}. GOD MODE. Portada de revista. 🔥`,
+        `L3${locationText}. Máximo flow. Foto épica. 🚀`,
+        `MASTER${locationText}. Te has pasado el juego. 💫`,
+      ]);
+      const extra = flavor(pointId, 'success');
+      return extra ? `${base} ${extra}` : base;
     }
     if (achievedLevel === 2) {
-      return `Nivel Pro conseguido${locationText}. Busca un giro o gesto mas marcado para llegar al nivel 3.`;
+      const base = pick([
+        `Nivel 2${locationText}. PRO vibes. Un giro más y caes en L3. 😎`,
+        `L2${locationText}. Muy sólido. Sube actitud y rematas L3. 💥`,
+        `PRO${locationText}. A un paso del top. Dale un plus y entras. 🔜`,
+      ]);
+      const extra = flavor(pointId, 'success');
+      return extra ? `${base} ${extra}` : base;
     }
     if (achievedLevel === 1) {
-      return `Nivel 1 conseguido${locationText}. Repite con mas actitud o cercania para subir de nivel.`;
+      const base = pick([
+        `Nivel 1${locationText}. Calentando. Un poco más de cerca o actitud y subes. 🔥`,
+        `L1${locationText}. Bien jugado. Repite con más flow y te vas al L2. ✨`,
+        `Rookie${locationText}. Ya cuentas. Ahora busca luz y actitud para subir. 📈`,
+      ]);
+      const extra = flavor(pointId, 'success');
+      return extra ? `${base} ${extra}` : base;
     }
     if (nextLevel) {
       const pending = nextLevel.requirements
         .map(req => (req.met ? null : req.detail))
         .filter(Boolean)
         .join(' ');
-      return `Aun no desbloqueaste el nivel ${achievedLevel + 1}. ${pending}`.trim();
+      const base = pick([
+        `Casi. ${pending}`,
+        `Muy cerca. ${pending}`,
+        `Otra toma y cae. ${pending}`,
+      ]).trim();
+      const extra = flavor(pointId, 'tip');
+      return extra ? `${base} ${extra}` : base;
     }
-    return 'Toma un selfie mas cerca del punto, con rostro visible, para empezar a sumar niveles.';
+    const base = pick([
+      'Acércate al spot y mírate a cámara. Let’s go. 💫',
+      'Un poco más cerca y con luz de cara. 🔆',
+      'Pega dos pasos, mira a cámara y dispara. 🚶‍♂️📸',
+    ]);
+    const extra = flavor(pointId, 'tip');
+    return extra ? `${base} ${extra}` : base;
   }
 }
 

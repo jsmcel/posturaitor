@@ -3,6 +3,37 @@ import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Platform, Alert, Linking } from 'react-native';
 
+// Generador de frases con punch + hashtags por punto/nivel
+function generatePunchShareText(selfieData, platform) {
+  const pick = (arr) => Array.isArray(arr) && arr.length ? arr[Math.floor(Math.random() * arr.length)] : '';
+  const { stopId, hashtag, achievedLevel, targetLevel } = selfieData || {};
+  const level = achievedLevel || targetLevel || 1;
+  const lvlTag = `#L${level}`;
+  const baseTags = ['#POSTURAITOR', '#GranVia', '#Madrid'];
+  const tags = [hashtag, lvlTag, ...baseTags].filter(Boolean).join(' ');
+
+  const PUNCH = {
+    1: { 1: ['Skyline ON. Boss vibes en Cibeles.', 'Panorámica chill en Cibeles.'], 2: ['De espaldas al paisaje, mando total.', 'Cibeles en modo líder.'], 3: ['Gran angular + power pose. Madrid a mis pies.', 'God mode en Cibeles.'] },
+    2: { 1: ['Fachada on, vibes elegantes.', 'Linares con gesto amable.'], 2: ['Grito silencioso + ojos abiertos.', 'Leyenda mood activado.'], 3: ['Blanco y negro + drama fino.', 'Foto de leyenda en Linares.'] },
+    3: { 1: ['Banco en cuadro, clase y flow.', 'Sonrisa controlada en el banco.'], 2: ['Mirada de plan maestro.', 'Modo atraco ON, cero risas.'], 3: ['Cruza brazos + mirada fija. Malote elegante.', 'Dominando el frame frente al banco.'] },
+    4: { 1: ['Minerva al fondo, sonrisa suave.', 'Diosa vibe a la vista.'], 2: ['Levanta el brazo: energías de diosa.', 'Poder de Minerva en subida.'], 3: ['Contrapicado celestial. Mira al cielo.', 'Revelación divina en el frame.'] },
+    5: { 1: ['Semáforo visible, cruce clásico.', 'Gran Vía old school.'], 2: ['Cruza en verde con energía.', 'Flow de cruce en verde.'], 3: ['Sepia + luces de coches.', 'Vintage tráfico vibes.'] },
+    6: { 1: ['Metrópolis en cuadro, brillo fino.', 'Postal de Metrópolis.'], 2: ['Cúpula dorada vibes.', 'Alinea cúpula y a brillar.'], 3: ['Contrapicado elegante, a tope.', 'Brillando como la cúpula.'] },
+    7: { 1: ['Chicote vibes, gesto friendly.', 'Clásico con estilo.'], 2: ['Neón y pose cool.', 'Nitidez con flow.'], 3: ['B&N/luz suave, estética clean.', 'Nocturna con estilo.'] },
+    8: { 1: ['WOW limpio y centrado.', 'Retail futurista vibes.'], 2: ['Simetría y actitud.', 'Centro y foco.'], 3: ['Plano creativo + filtro fino.', 'Concept vibes ON.'] },
+    9: { 1: ['Icono tech en cuadro.', 'Altura y flow.'], 2: ['Giro leve, drama tech.', 'Futuro clásico.'], 3: ['Ángulo potente, sin exceso.', 'Skyline tech vibes.'] },
+    10:{ 1: ['Gigante retail energy.', 'Primark XXL con estilo.'], 2: ['Escaleras/luces, tú al mando.', 'Plano amplio on.'], 3: ['Gran angular + power pose.', 'Showroom vibes.'] },
+    11:{ 1: ['Schweppes al fondo, chill.', 'Movie frame en Gran Vía.'], 2: ['Sin flash, deja que el neón pinte.', 'Neón en la cara, clean.'], 3: ['Nocturna dramática top.', 'Neón + actitud.'] },
+    12:{ 1: ['Centro neurálgico vibes.', 'Callao con pantallas.'], 2: ['Gira el cuerpo para luz.', 'Luz frontal y foco.'], 3: ['Panorámica urbana pro.', 'Movimiento con estilo.'] },
+    13:{ 1: ['Teatro al fondo, sonrisa suave.', 'Drama suave.'], 2: ['Cruza brazos/ceja arriba.', 'Look susurro.'], 3: ['Foco en ti, backstage atrás.', 'Dramatismo limpio.'] },
+    14:{ 1: ['Dos marquesinas on.', 'Teatro twin vibes.'], 2: ['Señala ambos lados.', 'Duda teatral con flow.'], 3: ['Broadway vibes, panorámica.', 'Nocturna showtime.'] },
+    15:{ 1: ['Quijote y Sancho contigo.', 'Héroes en la plaza.'], 2: ['Imita pose clásica.', 'Actitud clásica con flow.'], 3: ['Skybar heroico.', 'Vértigo épico.'] },
+  };
+
+  const punch = (PUNCH[stopId] && PUNCH[stopId][level] && pick(PUNCH[stopId][level])) || pick(['Gran Via vibes.', 'Madrid on fire.', 'Foto con flow.']);
+  return `${punch} ${tags}`.trim();
+}
+
 export class SocialShareService {
   
   // Crear imagen con watermark de POSTURAITOR
@@ -69,7 +100,7 @@ export class SocialShareService {
   static async shareToWhatsApp(imageUri, selfieData) {
     try {
       const brandedImageUri = await this.createBrandedImage(imageUri, selfieData);
-      const text = this.generateShareText(selfieData, 'whatsapp');
+      const text = generatePunchShareText(selfieData, 'whatsapp');
       
       if (Platform.OS === 'web') {
         // En web, abrir WhatsApp Web
@@ -109,7 +140,7 @@ export class SocialShareService {
   // Compartir en X (Twitter)
   static async shareToTwitter(imageUri, selfieData) {
     try {
-      const text = this.generateShareText(selfieData, 'twitter');
+      const text = generatePunchShareText(selfieData, 'twitter');
       const encodedText = encodeURIComponent(text);
       
       if (Platform.OS === 'web') {
@@ -140,7 +171,7 @@ export class SocialShareService {
   static async shareToInstagram(imageUri, selfieData) {
     try {
       const brandedImageUri = await this.createBrandedImage(imageUri, selfieData);
-      const text = this.generateShareText(selfieData, 'instagram');
+      const text = generatePunchShareText(selfieData, 'instagram');
       
       if (Platform.OS === 'web') {
         // En web, mostrar instrucciones
@@ -193,7 +224,7 @@ export class SocialShareService {
   static async shareGeneric(imageUri, selfieData) {
     try {
       const brandedImageUri = await this.createBrandedImage(imageUri, selfieData);
-      const text = this.generateShareText(selfieData, 'generic');
+      const text = generatePunchShareText(selfieData, 'generic');
       
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {

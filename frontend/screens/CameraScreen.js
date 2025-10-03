@@ -365,9 +365,18 @@ Proceder con el analisis en el movil?`,
 
       await saveSelfieToAlbum(imageUri, point, finalResult);
 
+      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
       const levelText = levelEvaluation.met
-        ? `NIVEL ${targetLevel} CONSEGUIDO`
-        : `Nivel ${targetLevel} no conseguido`;
+        ? pick([
+            `🔥 NIVEL ${targetLevel} CONSEGUIDO`,
+            `💯 L${targetLevel} UNLOCKED`,
+            `✅ L${targetLevel} OK`,
+          ])
+        : pick([
+            `Casi L${targetLevel}…`,
+            `No cae L${targetLevel} aún`,
+            `Otra toma y cae L${targetLevel}`,
+          ]);
 
       if (levelEvaluation.met) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
