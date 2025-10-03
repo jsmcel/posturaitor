@@ -61,7 +61,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow POSTURAITOR to access your camera for selfie analysis"
+          "cameraPermission": "Allow POSTURAITOR to access your camera for selfie analysis",
+          "useCamera2Interop": true,
+          "enableFaceDetection": true
         }
       ]
     ],

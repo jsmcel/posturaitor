@@ -17,6 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import StyledAlert from '../components/StyledAlert';
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
+import { getLevelChallenge, getLevelDescriptions } from '../constants/challenges';
+import { useMediaPipeFaceTracker, evaluateSelfieWithMediaPipe, mediaPipeFaceDetectorSettings } from '../services/MediaPipeSelfieEvaluator';
 
 const { width, height } = Dimensions.get('window');
 
@@ -25,6 +27,8 @@ export default function CameraScreen({ navigation, route }) {
   const [facing, setFacing] = useState('front'); // Default to front camera (selfie mode)
   const [isReady, setIsReady] = useState(true);
   const cameraRef = useRef(null);
+  const mediaPipeTracker = useMediaPipeFaceTracker();
+  const userLocation = route.params?.userLocation || null;
   
   // Estados para filtros en tiempo real
   const [selectedFilter, setSelectedFilter] = useState('none');
@@ -199,33 +203,36 @@ export default function CameraScreen({ navigation, route }) {
     try {
       const point = route.params?.point || {
         id: 3,
-        name: 'Banco de España',
-        hashtag: '#ModoAtraco'
+        name: 'Banco de Espana',
+        hashtag: '#ModoAtraco',
       };
 
-      const { AIAnalyzer } = await import('../services/AIAnalyzer');
-      const pointPoses = AIAnalyzer.getPointLevelPoses(point.id);
+      const levelDescriptions = getLevelDescriptions(point.id);
 
       showStyledAlert(
-        '🎯 Selecciona tu Nivel',
-        `¿A qué nivel quieres intentar acceder en ${point.name}?\n\nCada nivel tiene diferentes requisitos de pose y actitud.`,
+        'Selecciona tu Nivel',
+        `Elige la dificultad para ${point.name}:
+
+Nivel 1: ${levelDescriptions[1]}
+Nivel 2: ${levelDescriptions[2]}
+Nivel 3: ${levelDescriptions[3]}`,
         [
           {
-            text: '🥉 Nivel 1 - Principiante',
-            onPress: () => showLevelDetails(imageUri, point, 1, pointPoses.level1)
+            text: 'Nivel 1 - Principiante',
+            onPress: () => showLevelDetails(imageUri, point, 1, getLevelChallenge(point.id, 1)),
           },
           {
-            text: '🥈 Nivel 2 - Intermedio',
-            onPress: () => showLevelDetails(imageUri, point, 2, pointPoses.level2)
+            text: 'Nivel 2 - Intermedio',
+            onPress: () => showLevelDetails(imageUri, point, 2, getLevelChallenge(point.id, 2)),
           },
           {
-            text: '🏆 Nivel 3 - Experto',
-            onPress: () => showLevelDetails(imageUri, point, 3, pointPoses.level3)
+            text: 'Nivel 3 - Experto',
+            onPress: () => showLevelDetails(imageUri, point, 3, getLevelChallenge(point.id, 3)),
           },
           {
             text: 'Cancelar',
-            style: 'cancel'
-          }
+            style: 'cancel',
+          },
         ],
         'trophy'
       );
@@ -239,21 +246,39 @@ export default function CameraScreen({ navigation, route }) {
     }
   };
 
-  const showLevelDetails = (imageUri, point, level, requirements) => {
+  const showLevelDetails = (imageUri, point, level, levelConfig) => {
     const levelIcons = { 1: 'medal', 2: 'trophy', 3: 'star' };
-    
+
+    const rules = levelConfig?.rules || {};
+    const detailLines = [levelConfig?.description || 'Requisitos generales del nivel.'];
+
+    if (rules.requiredFilterId) {
+      detailLines.push(`Filtro requerido: ${rules.requiredFilterId}`);
+    } else if (rules.requireFilter) {
+      detailLines.push('Aplica cualquier filtro especial para este nivel.');
+    }
+
+    if (Array.isArray(rules.manualChecks) && rules.manualChecks.length) {
+      detailLines.push(...rules.manualChecks);
+    }
+
+    const detailsText = detailLines.join('\n');
+
     showStyledAlert(
       `Nivel ${level} - ${point.name}`,
-      `📋 Requisitos:\n${requirements.description}\n\n¿Proceder con el análisis de IA?`,
+      `Requisitos:
+${detailsText}
+
+Proceder con el analisis en el movil?`,
       [
         {
-          text: '⬅️ Cambiar Nivel',
-          onPress: () => selectLevelAndAnalyze(imageUri)
+          text: 'Cambiar Nivel',
+          onPress: () => selectLevelAndAnalyze(imageUri),
         },
         {
-          text: `🤖 Analizar Nivel ${level}`,
-          onPress: () => analyzeSelfie(imageUri, point, level)
-        }
+          text: `Analizar Nivel ${level}`,
+          onPress: () => analyzeSelfie(imageUri, point, level),
+        },
       ],
       levelIcons[level]
     );
@@ -262,113 +287,156 @@ export default function CameraScreen({ navigation, route }) {
   const analyzeSelfie = async (imageUri, point, targetLevel) => {
     try {
       showStyledAlert(
-        '🤖 Analizando...',
-        `La IA está evaluando tu selfie para el Nivel ${targetLevel}...\n\nEsto puede tardar unos segundos.`,
+        'Analizando...',
+        `La IA esta evaluando tu selfie para el Nivel ${targetLevel}...\n\nEsto puede tardar unos segundos.`,
         [],
         'analytics'
       );
 
-      const { AIAnalyzer } = await import('../services/AIAnalyzer');
-      
-      const detailedAnalysis = await AIAnalyzer.performFullAnalysis(imageUri, point.id);
+      const evaluation = await evaluateSelfieWithMediaPipe({
+        imageUri,
+        point,
+        userLocation,
+        faceTracker: mediaPipeTracker,
+        selectedFilter,
+      });
 
-      if (!detailedAnalysis) {
-        throw new Error("The AI analysis failed to produce a result.");
+      if (mediaPipeTracker?.resetFace) {
+        mediaPipeTracker.resetFace();
       }
-      
-      const levelEvaluation = AIAnalyzer.evaluateLevel(detailedAnalysis, point.id, targetLevel);
-      
-      const finalResult = {
-        ...detailedAnalysis,
-        targetLevel,
-        achievedLevel: levelEvaluation.achieved ? targetLevel : 0,
-        levelEvaluation,
-        badge: AIAnalyzer.getBadgeForLevel(
-          levelEvaluation.achieved ? targetLevel : 0,
-          levelEvaluation.percentage
-        ),
-        message: AIAnalyzer.getMessageForLevel(
-          levelEvaluation.achieved ? targetLevel : 0,
-          levelEvaluation.percentage,
-          point.id
-        ),
-      };
-      
-      await saveSelfieToAlbum(imageUri, point, finalResult);
-      
-      const levelText = levelEvaluation.achieved
-        ? `🎉 ¡NIVEL ${targetLevel} CONSEGUIDO!`
-        : `⚠️ Nivel ${targetLevel} no conseguido`;
 
-      // Haptic feedback según el resultado
-      if (levelEvaluation.achieved) {
-        // Éxito: vibración de éxito
+      closeCurrentAlert();
+
+      if (!evaluation || evaluation.status === 'needs_face') {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        showStyledAlert(
+          'Necesitamos verte',
+          'No pudimos detectar tu rostro con suficiente claridad. Mejora la iluminacion, acerca el movil y mantente dentro del marco.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Reintentar', onPress: () => analyzeSelfie(imageUri, point, targetLevel) },
+          ],
+          'warning'
+        );
+        return;
+      }
+
+      if (evaluation.status && evaluation.status !== 'ok') {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        showStyledAlert(
+          'Analisis incompleto',
+          'Hubo un problema al evaluar la selfie. Intentalo de nuevo en unos segundos.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Reintentar', onPress: () => analyzeSelfie(imageUri, point, targetLevel) },
+          ],
+          'warning'
+        );
+        return;
+      }
+
+      const levelResults = evaluation.levelResults || {};
+      const fallbackEvaluation = {
+        met: false,
+        achieved: false,
+        score: 0,
+        percentage: 0,
+        maxScore: 100,
+        requirements: [],
+        details: ['Sin evaluacion disponible para este nivel.'],
+      };
+      const levelEvaluation = levelResults[targetLevel] || fallbackEvaluation;
+
+      const achievedLevel = levelEvaluation.met ? targetLevel : evaluation.achievedLevel || 0;
+      const percentage = Math.round((levelEvaluation.percentage ?? levelEvaluation.score ?? 0));
+      const scoreValue = Math.round(levelEvaluation.score ?? 0);
+      const maxScore = levelEvaluation.maxScore ?? 100;
+      const detailBody = levelEvaluation.details && levelEvaluation.details.length
+        ? levelEvaluation.details.join('\n')
+        : 'Sin detalles disponibles.';
+
+      const finalResult = {
+        ...evaluation,
+        targetLevel,
+        achievedLevel,
+        levelEvaluation,
+        analysisSource: 'mediapipe_local',
+      };
+
+      await saveSelfieToAlbum(imageUri, point, finalResult);
+
+      const levelText = levelEvaluation.met
+        ? `NIVEL ${targetLevel} CONSEGUIDO`
+        : `Nivel ${targetLevel} no conseguido`;
+
+      if (levelEvaluation.met) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        // No conseguido: vibración suave
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
+      const summaryMessage = [
+        evaluation.message || 'Analisis completado.',
+        '',
+        `Lugar: ${point.name}`,
+        `Nivel objetivo: ${targetLevel}`,
+        `Nivel alcanzado: ${achievedLevel}`,
+        `Cumplimiento: ${percentage}%`,
+        `Puntos: ${scoreValue}/${maxScore}`,
+        '',
+        'Detalles:',
+        detailBody,
+        '',
+        'Selfie guardada en el album',
+      ].join('\n');
+
       showStyledAlert(
         levelText,
-        `${finalResult.message}\n\n` +
-        `📍 Lugar: ${point.name}\n` +
-        `🎯 Nivel objetivo: ${targetLevel}\n` +
-        `🏅 Nivel alcanzado: ${finalResult.achievedLevel}\n` +
-        `📊 Cumplimiento: ${levelEvaluation.percentage}%\n` +
-        `⭐ Puntos: ${levelEvaluation.score}/${levelEvaluation.maxScore}\n\n` +
-        `📱 Selfie guardada en el álbum`,
+        summaryMessage,
         [
-          { 
-            text: '🎨 Editar Foto', 
+          {
+            text: 'Editar Foto',
             onPress: () => {
               navigation.navigate('PhotoEditor', {
-                imageUri: imageUri,
+                imageUri,
                 stopId: point.id,
-                selfieData: finalResult 
+                selfieData: finalResult,
               });
-            }
+            },
           },
-          { 
-            text: '📤 Compartir Directo', 
+          {
+            text: 'Compartir Directo',
             onPress: () => {
-              console.log('📤 Botón Compartir Directo presionado');
               showShareMenu(imageUri, {
-                  stopName: point.name,
-                  hashtag: point.hashtag,
-                  analysis: finalResult.levelEvaluation.details.join('\n'),
-                  achievedLevel: finalResult.achievedLevel,
-                  targetLevel: finalResult.targetLevel,
-                  percentage: finalResult.levelEvaluation.percentage
+                stopName: point.name,
+                hashtag: point.hashtag,
+                analysis: detailBody,
+                achievedLevel: finalResult.achievedLevel,
+                targetLevel: finalResult.targetLevel,
+                percentage,
               });
-            }
+            },
           },
-          { 
-            text: '📸 Ver Álbum', 
-            onPress: () => navigation.navigate('Album')
-          },
-          { 
-            text: levelEvaluation.achieved ? '🗺️ Continuar Ruta' : '🔄 Intentar Otro Nivel', 
-            onPress: () => levelEvaluation.achieved ? 
-              navigation.navigate('Map') : 
-              selectLevelAndAnalyze(imageUri),
-            style: 'cancel'
+          { text: 'Ver Album', onPress: () => navigation.navigate('Album') },
+          {
+            text: levelEvaluation.met ? 'Continuar Ruta' : 'Intentar Otro Nivel',
+            onPress: () =>
+              levelEvaluation.met ? navigation.navigate('Map') : selectLevelAndAnalyze(imageUri),
+            style: 'cancel',
           },
         ],
-        levelEvaluation.achieved ? 'checkmark-circle' : 'warning'
+        levelEvaluation.met ? 'checkmark-circle' : 'warning'
       );
     } catch (error) {
       console.error('Error analyzing selfie:', error);
-      
-      // Haptic feedback de error
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      
+      closeCurrentAlert();
       showStyledAlert(
-        'Error en el Análisis',
-        'No se pudo analizar la selfie. ¿Quieres intentarlo de nuevo?',
+        'Error en el analisis',
+        'No se pudo analizar la selfie. Quieres intentarlo de nuevo?',
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: '🔄 Reintentar', onPress: () => selectLevelAndAnalyze(imageUri) }
+          { text: 'Reintentar', onPress: () => selectLevelAndAnalyze(imageUri) },
         ],
         'alert-circle'
       );
@@ -488,6 +556,9 @@ export default function CameraScreen({ navigation, route }) {
         style={styles.camera}
         facing={facing}
         ref={cameraRef}
+        faceDetectorEnabled
+        faceDetectorSettings={mediaPipeFaceDetectorSettings}
+        onFacesDetected={mediaPipeTracker.onFacesDetected}
       >
             <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)']}

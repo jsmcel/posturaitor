@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "9d29c29a-1eb5-4303-9cc3-ee2032069e25"
+      }
+    },
+    "android": {
+      "package": "com.joscelino.posturaitorgranvia"
+    }
+  }
+}

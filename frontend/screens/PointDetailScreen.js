@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import AudioPlayer from '../components/AudioPlayer';
 import StyledAlert from '../components/StyledAlert';
+import { getLevelChallenge, getLevelDescriptions } from '../constants/challenges';
 
 const { width, height } = Dimensions.get('window');
 
 export default function PointDetailScreen({ navigation, route }) {
   const { point, userLocation } = route.params;
+  const levelDescriptions = useMemo(() => getLevelDescriptions(point.id), [point.id]);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
@@ -72,35 +74,48 @@ export default function PointDetailScreen({ navigation, route }) {
     setAlertVisible(true);
   };
 
-  const handleTakeSelfieForLevel = async (level) => {
-    const { AIAnalyzer } = await import('../services/AIAnalyzer');
-    const pointPoses = AIAnalyzer.getPointLevelPoses(point.id);
-    const levelData = pointPoses[`level${level}`];
+  const handleTakeSelfieForLevel = (level) => {
+    const levelConfig = getLevelChallenge(point.id, level);
+    const rules = levelConfig?.rules || {};
+    const detailLines = [levelConfig?.description || `Requisitos del nivel ${level}.`];
+
+    if (rules.requiredFilterId) {
+      detailLines.push(`Filtro requerido: ${rules.requiredFilterId}`);
+    } else if (rules.requireFilter) {
+      detailLines.push('Activa cualquier filtro especial para este nivel.');
+    }
+
+    if (Array.isArray(rules.manualChecks) && rules.manualChecks.length) {
+      detailLines.push(...rules.manualChecks);
+    }
 
     showStyledAlert(
-      `🎯 Nivel ${level} - ${point.name}`,
-      `📋 Requisitos:\n${levelData.description}\n\n¿Estás listo para el desafío?`,
+      `Nivel ${level} - ${point.name}`,
+      `Requisitos:
+${detailLines.join('\n')}
+
+Listo para intentarlo?`,
       [
         {
-          text: `📸 ¡Vamos a por el Nivel ${level}!`,
+          text: `Vamos a por el Nivel ${level}`,
           onPress: () => {
             navigation.navigate('Camera', {
-              point: point,
+              point,
               targetLevel: level,
-              autoAnalyze: true
+              autoAnalyze: true,
             });
-          }
+          },
         },
         {
-          text: '⬅️ Elegir Otro Nivel',
-          style: 'cancel'
-        }
+          text: 'Elegir Otro Nivel',
+          style: 'cancel',
+        },
       ],
       level === 1 ? 'medal' : level === 2 ? 'trophy' : 'star'
     );
   };
 
-  if (!isUnlocked) {
+if (!isUnlocked) {
     return (
       <LinearGradient
         colors={['#FF6B9D', '#C44569', '#2C3E50', '#000']}
@@ -221,7 +236,7 @@ export default function PointDetailScreen({ navigation, route }) {
                 </View>
                 <View style={styles.levelInfo}>
                   <Text style={styles.levelButtonTitle}>🥉 Nivel 1 - Principiante</Text>
-                  <Text style={styles.levelButtonDesc}>Poses básicas y expresiones simples</Text>
+                  <Text style={styles.levelButtonDesc}>{levelDescriptions[1]}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#000" />
               </View>
@@ -238,7 +253,7 @@ export default function PointDetailScreen({ navigation, route }) {
                 </View>
                 <View style={styles.levelInfo}>
                   <Text style={styles.levelButtonTitle}>🥈 Nivel 2 - Intermedio</Text>
-                  <Text style={styles.levelButtonDesc}>Combinaciones de poses y actitudes</Text>
+                  <Text style={styles.levelButtonDesc}>{levelDescriptions[2]}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#000" />
               </View>
@@ -255,7 +270,7 @@ export default function PointDetailScreen({ navigation, route }) {
                 </View>
                 <View style={styles.levelInfo}>
                   <Text style={styles.levelButtonTitle}>🏆 Nivel 3 - Experto</Text>
-                  <Text style={styles.levelButtonDesc}>Desafío máximo con múltiples requisitos</Text>
+                  <Text style={styles.levelButtonDesc}>{levelDescriptions[3]}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#000" />
               </View>

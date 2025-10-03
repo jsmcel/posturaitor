@@ -17,14 +17,7 @@ import { useUser } from '../context/UserContext';
 const { width, height } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation, route }) {
-  const [user] = useState(route.params?.user || {
-    name: 'POSTUREITOR',
-    level: 1,
-    experience: 0,
-    completedStops: [],
-    totalRating: 0,
-    badges: []
-  });
+  const { user } = useUser();
 
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
